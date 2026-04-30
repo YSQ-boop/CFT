@@ -16,7 +16,6 @@ from CFT.utils.sample_kl_mode_utils import (
     sample_kl_uses_teacher_prompt,
 )
 from CFT.models.utils import (
-    apply_advantage_conditioned_kl_reweight,
     compute_approx_kl,
     compute_directional_distribution_kl,
     compute_directional_topk_distribution_kl,
@@ -26,6 +25,7 @@ from CFT.models.utils import (
     compute_topk_distribution_kl,
     masked_mean,
     prepare_topk_log_probs_for_divergence,
+    select_advantage_conditioned_kl,
 )
 from CFT.trainer.ppo_utils.length_penalty import apply_length_penalties
 from CFT.trainer.ray.launcher import RayActorGroup
@@ -1228,22 +1228,19 @@ class RemoteExperienceMaker:
                         "Directional KL tensors must be precomputed for advantage-conditioned KL reweighting"
                     )
 
-                reweighted_advantages, selected_kl, adv_kl_direction, adv_kl_weight_mean, seq_advantages = (
-                    apply_advantage_conditioned_kl_reweight(
+                selected_kl, adv_kl_direction, seq_advantages = (
+                    select_advantage_conditioned_kl(
                         exp.advantages,
                         exp.action_mask,
                         kl_s2t,
                         kl_t2s,
-                        args.adv_kl_weight_clip,
                     )
                 )
-                exp.advantages = reweighted_advantages
                 target_kl_dtype = exp.kl.dtype if exp.kl is not None else selected_kl.dtype
                 exp.kl = selected_kl.to(dtype=target_kl_dtype)
                 exp.info["kl"] = masked_mean(exp.kl, exp.action_mask, dim=-1)
                 exp.info["distill_kl"] = exp.info["kl"]
                 exp.info["adv_kl_direction"] = adv_kl_direction
-                exp.info["adv_kl_weight_mean"] = adv_kl_weight_mean
                 exp.info["adv_kl_seq_adv"] = seq_advantages
                 _clear_advantage_conditioned_kl_tensors(exp)
 

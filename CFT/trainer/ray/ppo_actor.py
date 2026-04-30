@@ -84,6 +84,8 @@ class ActorPPOTrainer(ABC):
             kl_top_ratio=self.args.policy_loss_kl_top_ratio,
             entropy_diff_top_ratio=self.args.policy_loss_entropy_diff_top_ratio,
             teacher_entropy_top_ratio=self.args.policy_loss_teacher_entropy_top_ratio,
+            enable_adv_kl_reweight=self.args.enable_adv_kl_reweight,
+            adv_kl_weight_clip=self.args.adv_kl_weight_clip,
         )
 
         # Mixtral 8x7b
@@ -250,7 +252,7 @@ class ActorPPOTrainer(ABC):
 
         response_entropy = output.entropy[:, -experience.action_mask.shape[1] :] if need_token_entropy else None
         # loss function
-        actor_loss, clip_ratio, ppo_kl, vllm_kl = self.actor_loss_fn(
+        actor_loss, clip_ratio, ppo_kl, vllm_kl, aux_info = self.actor_loss_fn(
             action_log_probs,
             old_action_log_probs,
             advantages,
@@ -264,6 +266,8 @@ class ActorPPOTrainer(ABC):
         experience.info["ppo_kl"] = ppo_kl.detach()
         if vllm_kl is not None:
             experience.info["vllm_kl"] = vllm_kl.detach()
+        for key, value in aux_info.items():
+            experience.info[key] = value.detach() if isinstance(value, torch.Tensor) else value
         if self.args.use_kl_loss:
             if self.args.init_kl_coef > 0:
                 kl = compute_approx_kl(

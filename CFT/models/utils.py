@@ -325,17 +325,13 @@ def masked_mean_with_fallback(
     return torch.where(denom > 0, mean, fallback)
 
 
-def apply_advantage_conditioned_kl_reweight(
+def select_advantage_conditioned_kl(
     advantages: torch.Tensor,
     action_mask: torch.Tensor,
     kl_s2t: torch.Tensor,
     kl_t2s: torch.Tensor,
-    weight_clip: float,
     zero_epsilon: float = 1e-8,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    if weight_clip < 0:
-        raise ValueError(f"weight_clip must be non-negative, got {weight_clip}")
-
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if advantages.shape != action_mask.shape:
         raise ValueError(f"advantages shape must match action_mask shape, got {advantages.shape} vs {action_mask.shape}")
     if kl_s2t.shape != action_mask.shape or kl_t2s.shape != action_mask.shape:
@@ -355,18 +351,66 @@ def apply_advantage_conditioned_kl_reweight(
     selected_kl = torch.where(positive_mask.unsqueeze(-1), kl_s2t.float(), selected_kl)
     selected_kl = torch.where(negative_mask.unsqueeze(-1), kl_t2s.float(), selected_kl)
 
-    action_mask_bool = action_mask.bool()
     action_mask_float = action_mask.to(dtype=selected_kl.dtype)
     selected_kl = selected_kl * action_mask_float
 
-    selected_kl_mean = masked_mean_with_fallback(selected_kl, action_mask, dim=-1)
+    return selected_kl, direction, seq_advantages
+
+
+def apply_selected_kl_reweight(
+    advantages: torch.Tensor,
+    selected_kl: torch.Tensor,
+    weight_mask: torch.Tensor,
+    weight_clip: float,
+    zero_epsilon: float = 1e-8,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if weight_clip < 0:
+        raise ValueError(f"weight_clip must be non-negative, got {weight_clip}")
+
+    if advantages.shape != selected_kl.shape:
+        raise ValueError(
+            f"advantages shape must match selected_kl shape, got {advantages.shape} vs {selected_kl.shape}"
+        )
+    if weight_mask.shape != selected_kl.shape:
+        raise ValueError(
+            f"weight_mask shape must match selected_kl shape, got {weight_mask.shape} vs {selected_kl.shape}"
+        )
+
+    weight_mask_bool = weight_mask.bool()
+    selected_kl = selected_kl.float() * weight_mask.to(dtype=torch.float32)
+    selected_kl_mean = masked_mean_with_fallback(selected_kl, weight_mask, dim=-1)
     normalized_kl = selected_kl / selected_kl_mean.unsqueeze(-1).clamp_min(zero_epsilon)
-    weights = torch.where(action_mask_bool, normalized_kl, torch.ones_like(normalized_kl))
+    weights = torch.where(weight_mask_bool, normalized_kl, torch.ones_like(normalized_kl))
     weights = torch.where((selected_kl_mean > zero_epsilon).unsqueeze(-1), weights, torch.ones_like(weights))
 
     clipped_weights = weights.clamp(min=1.0 - weight_clip, max=1.0 + weight_clip)
     reweighted_advantages = advantages * clipped_weights.to(dtype=advantages.dtype)
-    weight_mean = masked_mean_with_fallback(clipped_weights, action_mask, dim=-1, fallback=1.0)
+    weight_mean = masked_mean_with_fallback(clipped_weights, weight_mask, dim=-1, fallback=1.0)
+    return reweighted_advantages, weight_mean
+
+
+def apply_advantage_conditioned_kl_reweight(
+    advantages: torch.Tensor,
+    action_mask: torch.Tensor,
+    kl_s2t: torch.Tensor,
+    kl_t2s: torch.Tensor,
+    weight_clip: float,
+    zero_epsilon: float = 1e-8,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    selected_kl, direction, seq_advantages = select_advantage_conditioned_kl(
+        advantages,
+        action_mask,
+        kl_s2t,
+        kl_t2s,
+        zero_epsilon=zero_epsilon,
+    )
+    reweighted_advantages, weight_mean = apply_selected_kl_reweight(
+        advantages,
+        selected_kl,
+        action_mask,
+        weight_clip,
+        zero_epsilon=zero_epsilon,
+    )
     return reweighted_advantages, selected_kl, direction, weight_mean, seq_advantages
 
 

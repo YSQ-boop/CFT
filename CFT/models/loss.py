@@ -5,7 +5,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import masked_mean
+from .utils import apply_selected_kl_reweight, masked_mean
 
 
 def get_global_top_mask(values: torch.Tensor, response_mask: torch.Tensor, top_ratio: float) -> torch.Tensor:
@@ -139,6 +139,8 @@ class PolicyLoss(nn.Module):
         kl_top_ratio: float = 0.1,
         entropy_diff_top_ratio: float = 0.0,
         teacher_entropy_top_ratio: float = 0.0,
+        enable_adv_kl_reweight: bool = False,
+        adv_kl_weight_clip: float = 0.2,
     ) -> None:
         super().__init__()
         self.clip_eps_low = clip_eps_low
@@ -155,6 +157,8 @@ class PolicyLoss(nn.Module):
         self.kl_top_ratio = kl_top_ratio
         self.entropy_diff_top_ratio = entropy_diff_top_ratio
         self.teacher_entropy_top_ratio = teacher_entropy_top_ratio
+        self.enable_adv_kl_reweight = enable_adv_kl_reweight
+        self.adv_kl_weight_clip = adv_kl_weight_clip
 
         # GSPO requires sequence-level loss
         if policy_loss_type == "gspo":
@@ -177,6 +181,8 @@ class PolicyLoss(nn.Module):
             raise ValueError(
                 f"teacher_entropy_top_ratio must be in [0, 1], got {self.teacher_entropy_top_ratio}"
             )
+        if self.adv_kl_weight_clip < 0.0:
+            raise ValueError(f"adv_kl_weight_clip must be >= 0, got {self.adv_kl_weight_clip}")
 
         if self.use_adv_shaping:
             self.alpha = 0.4
@@ -264,6 +270,7 @@ class PolicyLoss(nn.Module):
         else:
             action_mask = action_mask.to(dtype=log_probs.dtype)
         effective_action_mask = action_mask
+        aux_info = {}
 
         if self.policy_loss_type == "ppo":
             log_ratio = log_probs - old_log_probs
@@ -369,6 +376,19 @@ class PolicyLoss(nn.Module):
                 merged_top_mask = torch.maximum(merged_top_mask, top_mask)
             effective_action_mask = action_mask * merged_top_mask
 
+        if self.enable_adv_kl_reweight:
+            if kl is None:
+                raise ValueError("kl must be provided when enable_adv_kl_reweight is True")
+            if kl.shape != action_mask.shape:
+                raise ValueError(f"kl shape must match action_mask shape, got {kl.shape} vs {action_mask.shape}")
+            advantages, adv_kl_weight_mean = apply_selected_kl_reweight(
+                advantages,
+                kl,
+                effective_action_mask,
+                self.adv_kl_weight_clip,
+            )
+            aux_info["adv_kl_weight_mean"] = adv_kl_weight_mean
+
         surr1 = ratio * advantages
         surr2 = ratio.clamp(1 - self.clip_eps_low, 1 + self.clip_eps_high) * advantages
 
@@ -415,7 +435,7 @@ class PolicyLoss(nn.Module):
         )
         clip_ratio = _safe_masked_mean(torch.lt(surr2, surr1).float(), effective_action_mask, dim=None)
         ppo_kl = _safe_masked_mean(-log_ratio.detach(), effective_action_mask, dim=None)
-        return loss, clip_ratio, ppo_kl, vllm_kl
+        return loss, clip_ratio, ppo_kl, vllm_kl, aux_info
 
 
 class ValueLoss(nn.Module):
