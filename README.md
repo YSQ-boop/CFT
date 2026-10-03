@@ -99,3 +99,20 @@ bash examples/scripts/train_ours.sh
 ```
 
 The other scripts in `examples/scripts/` provide configurations for the listed baselines. Full reproduction requires the corresponding model weights, data, and multi-GPU environment.
+
+## Assets and licenses
+
+The code and the bundled training data (`CFT/datasets/data/`) build on the public assets below. Each asset remains under its original license and terms of use.
+
+| Asset | Version | Use | License |
+| --- | --- | --- | --- |
+| [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF) | v0.9.5 | Training framework | Apache-2.0 |
+| [xLAM function-calling-60k](https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k) (APIGen) | HF release | Training data | CC BY 4.0 |
+| [APIGen-MT-5k](https://huggingface.co/datasets/Salesforce/APIGen-MT-5k) | HF release | Training data | CC BY-NC 4.0 |
+| [ToolACE](https://huggingface.co/datasets/Team-ACE/ToolACE) | HF release | Training data | Apache-2.0 |
+| [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) | v3, v4 | Evaluation | Apache-2.0 |
+| Tau3 ([τ²-bench](https://github.com/sierra-research/tau2-bench)) | Retail / Airline / Telecom | Evaluation | MIT |
+| [Qwen3](https://huggingface.co/Qwen) models | 4B-Thinking-2507, 8B, 30B-A3B-Thinking-2507, Next-80B-A3B-Thinking | Backbone, teachers, user simulator | Apache-2.0 |
+| [Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) | 3.1 | Cross-family backbone | Llama 3.1 Community License |
+
+Because APIGen-MT-5k is released under CC BY-NC 4.0, the bundled training data are provided for non-commercial research use only.
