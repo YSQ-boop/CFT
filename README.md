@@ -116,3 +116,7 @@ The code and the bundled training data (`CFT/datasets/data/`) build on the publi
 | [Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) | 3.1 | Cross-family backbone | Llama 3.1 Community License |
 
 Because APIGen-MT-5k is released under CC BY-NC 4.0, the bundled training data are provided for non-commercial research use only.
+
+## License
+
+The code is released under the [Apache License 2.0](LICENSE). It is derived from [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF) v0.9.5 (Apache-2.0): `CFT/` is the OpenRLHF `openrlhf/` package, renamed and modified to add the CFT training and credit-assignment components. The bundled training data are not covered by this license; see [Assets and licenses](#assets-and-licenses).
